@@ -245,14 +245,32 @@ namespace tomato_xarm6 {
         }
         plant_log_file_.close();
     }
-
-    void EnvironmentInfo::SaveRobotImages()
+    void EnvironmentInfo::StartRobotCamera(const std::string& robot_name, const std::string &node_name, bool capture_both) {
+        for (size_t i = 0; i < robot_info_.size(); i++){
+            if (robot_info_[i].topic_name == robot_name){
+                robot_info_[i].ConfigCamera(node_name, capture_both);
+                robot_info_[i].image_subscriber->start();
+            }
+        }
+    }
+    void EnvironmentInfo::StopRobotCamera(const std::string& robot_name) {
+        for (size_t i = 0; i < robot_info_.size(); i++){
+            if (robot_info_[i].topic_name == robot_name){
+                //robot_info_[i].ConfigCamera(node_name, capture_both);
+                robot_info_[i].image_subscriber->stop();
+            }
+        }
+    }
+    void EnvironmentInfo::SaveRobotImages(const std::string& robot_name, bool wait_for_sync_)
     {
         for (size_t i = 0; i < robot_info_.size(); i++){
-            if (robot_info_[i].topic_name == "Husky"){
+            if (robot_info_[i].topic_name == robot_name){
+                if (wait_for_sync_) {
+                    robot_info_[i].image_subscriber->waiting_for_sync();
+                }
                 robot_info_[i].image_subscriber->capture_count_ += 1;
                 RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6_camera"), "Saving images");
-                robot_info_[i].image_subscriber->save_images("output/robot/images_"+std::to_string(creation_time_.seconds())+"/");
+                robot_info_[i].image_subscriber->save_images("output/robot/images_"+robot_name+"_"+std::to_string(creation_time_.seconds())+"/");
             }
         }
     }
@@ -343,7 +361,7 @@ namespace tomato_xarm6 {
         camera_quaternion = tokens[8];
     }
 
-    void RobotInfo::ConfigCamera(std::string &node_name, bool capture_both) {
+    void RobotInfo::ConfigCamera(const std::string &node_name, bool capture_both) {
         image_subscriber = std::make_shared<ImageSubscriber>(node_name, camera_FOV, camera_width, camera_height, capture_both, topic_name);
         RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6_camera"), "FOV: %f, width: %d, height: %d", camera_FOV, camera_width, camera_height);
 

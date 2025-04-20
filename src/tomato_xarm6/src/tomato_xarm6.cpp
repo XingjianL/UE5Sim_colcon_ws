@@ -115,112 +115,114 @@ int main(int argc, char ** argv)
     } else {
       env.EnvPublishCommand("TimeIncr:0:LightSet:"+temperature+":DiseaseFilter:"+filtered_disease+":SplitHeightLeaf:"+split_height_leaf+":LeafPreprocess:"+leaf_preprocess+":PercentHealthy:"+percent_healthy+":PCGSeedIncr:"+PCGSeedIncr);
     }
-    rclcpp::sleep_for(std::chrono::milliseconds(20000));
+    rclcpp::sleep_for(std::chrono::milliseconds(25000));
   }
   env.waiting_for_sync();
-  for (size_t i = 0; i < env.robot_info_.size(); i++){
-    RCLCPP_INFO(logger, "robot names %s, %d", env.robot_info_[i].topic_name.c_str(), env.robot_info_[i].topic_name == "BenchBot");
-    if (env.robot_info_[i].topic_name == "Husky"){
-      env.robot_info_[i].ConfigCamera(cam_node_name, capture_both);
-      env.robot_info_[i].image_subscriber->start();
-    }
-  }
-  
-  //env.waiting_for_sync();
-  RCLCPP_INFO(logger, "Finished Init: Starting Setpoints");
+  RCLCPP_INFO(logger, "Finished Environment Init");
 
-  
-  // Sample setpoints from csv (if not using the argument)
-  // auto benchbot_setpoints_ = tomato_xarm6::read_robot_setpoints(
-  //   "/home/lxianglabxing/colcon_ws/src/tomato_xarm6/setpoints/setpoints1_xyz.csv", 
-  //   "/home/lxianglabxing/colcon_ws/src/tomato_xarm6/setpoints/setpoints1_rot.csv");
-  // auto setpoint = benchbot_setpoints_[0];
-  // RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "loaded setpoint: %f, %f, %f, %f, %f, %f", setpoint.x, setpoint.y, setpoint.z, setpoint.roll, setpoint.pitch, setpoint.yaw);
+  env.StartRobotCamera("Husky", cam_node_name, capture_both);
+  RCLCPP_INFO(logger, "Finished Husky Camera Init");
 
+  env.StartRobotCamera("BenchBot", cam_node_name, capture_both);
+  RCLCPP_INFO(logger, "Finished Benchbot Camera Init");
 
   for (int i = 0; i < 1; i+=sample_gap){
-    // for (const auto& item: robot_positions) {
-    //   RCLCPP_INFO(logger, "moving position for %s: %f, %f", item["name"].as<std::string>().c_str(), item["x"].as<float>(),item["y"].as<float>());
-    //   std::string robot_name = item["name"].as<std::string>();
-    //   double x = item["x"].as<double>();
-    //   double y = item["y"].as<double>();
-    //   tomato_xarm6::PlanarRobot platform(node, robot_name);
-    //   if (robot_name == "BenchBot") {
-    //     platform.set_planar_targets(
-    //       x, 525, 25, 0
-    //     );
-    //     platform.set_joints_targets(
-    //       {"benchbot_plate", "benchbot_camera"}, 
-    //       {y, 100}
-    //     );
-    //   } else if (robot_name == "Spider") {
-    //     platform.set_planar_targets(
-    //       x, y, 0, 0
-    //     );
-    //   } else {
-    //     platform.set_planar_targets(
-    //       x, y, 0, 0
-    //     );
-    //   }
-    //   rclcpp::sleep_for(std::chrono::milliseconds(3000));
-    // }
 
-    //break; // testing move-robot
+    // move robot based on argument
+    for (const auto& item: robot_positions) {
+      RCLCPP_INFO(logger, "moving argument position for %s: %f, %f", item["name"].as<std::string>().c_str(), item["x"].as<float>(),item["y"].as<float>());
+      std::string robot_name = item["name"].as<std::string>();
+      double x = item["x"].as<double>();
+      double y = item["y"].as<double>();
+      tomato_xarm6::PlanarRobot platform(node, robot_name);
+      if (robot_name == "BenchBot") {
+        platform.set_planar_targets(
+          x, 525, 25, 0
+        );
+        platform.set_joints_targets(
+          {"benchbot_plate", "benchbot_camera"}, 
+          {y, 100}
+        );
+      } else if (robot_name == "Spider") {
+        platform.set_planar_targets(
+          x, y, 0, 0
+        );
+      } else {
+        platform.set_planar_targets(
+          x, y, 0, 0
+        );
+      }
+      rclcpp::sleep_for(std::chrono::milliseconds(3000));
+    }
+
+    // break; // testing move-robot
 
     rclcpp::sleep_for(std::chrono::milliseconds(1000)); // wait for the robot in UE5 to settle
-    for (int plant_id_x = 1; plant_id_x < 16; plant_id_x++){ // 19
-      double platform_pos_x = 1.0 * plant_id_x;//(plant_id / 3) * 0.225 * 6; 1.0 -> 19.0
-      for (int plant_id_y = 1; plant_id_y < 35; plant_id_y++){ // 7
-        double platform_pos_y = 1.0 * plant_id_y;//(plant_id % 3) * 0.225 * 6; 2.0 -2.0-> 12.0 (14.0 -2.0-> 4.0)
-        
-        // benchbot set position
-        // set the base position (x, constant (y), constant (height), constant (rotation))
-        benchbot_platform.set_planar_targets(
-          platform_pos_x * 25 + 100, platform_pos_y * 175 + 175, 25, 0
-        );
-        // set the camera arm position over the horizontal bar (y, height(constant) )
-        // this provides a more realistic visual, only using the planar also works
-        benchbot_platform.set_joints_targets(
-          {"benchbot_plate", "benchbot_camera"}, 
-          {platform_pos_y * 5, 100}
-        );
-        RCLCPP_INFO(logger, "set benchbot pos");
 
+    // move benchbot
+    for (int plant_id_x = 0; plant_id_x < 7; plant_id_x++){ // 19
+      double platform_pos_x = plant_id_x; //1.0 -> 19.0
+      // move benchbot-amiga forward in small increments
+      for (int temp = 0; temp < 100; temp++){
+        benchbot_platform.set_planar_targets(
+          platform_pos_x * 100 + temp * 1, 450, 25, 0
+        );
+        rclcpp::sleep_for(std::chrono::milliseconds(50));
+      }
+
+      // move benchbot-gantry-camera to scan
+      for (int plant_id_y = 1; plant_id_y < 6; plant_id_y++){ // 7
+        double platform_pos_y = plant_id_y; // 2.0 -2.0-> 12.0 (14.0 -2.0-> 4.0)
+        if (plant_id_x % 2) {
+          benchbot_platform.set_joints_targets(
+            {"benchbot_plate", "benchbot_camera"}, 
+            {platform_pos_y * 150-200, 100}
+          );
+        } else {
+          benchbot_platform.set_joints_targets(
+            {"benchbot_plate", "benchbot_camera"}, 
+            {-platform_pos_y * 150+ 6 * 150 - 200, 100}
+          );
+        }
+        RCLCPP_INFO(logger, "set benchbot pos");
+        rclcpp::sleep_for(std::chrono::milliseconds(2500));
+        env.SaveRobotImages("BenchBot", true);
+      }
+    }
+    //break;
+
+    // move spider and husky
+    rclcpp::sleep_for(std::chrono::milliseconds(5000));
+    for (int plant_id_x = 1; plant_id_x < 36; plant_id_x++){ // 19
+      double platform_pos_x = plant_id_x; //1.0 -> 19.0
+      for (int plant_id_y = 1; plant_id_y < 2; plant_id_y++){ // 7
+        //double platform_pos_y = plant_id_y;
         // spider set position (only planar, x,y,constant,constant)
         spider_platform.set_planar_targets(
-          150 + platform_pos_x*1, 350, 0, 0
+          0 + platform_pos_x*10, 375, 0, 0
         );
         RCLCPP_INFO(logger, "set spider pos");
 
         // husky set position
         husky_platform.set_planar_targets(
-          platform_pos_x * 50, platform_pos_y * 25, 0 + (distribution(randgen) + 0.5) * 100, distribution(randgen)*3
+          platform_pos_x * 20, 525, 0, 0
         );
         RCLCPP_INFO(logger, "set husky pos");
-        
-        // sync simulation environment
-        rclcpp::sleep_for(std::chrono::milliseconds(1000));
-        env.waiting_for_sync();
-        for (size_t i = 0; i < env.robot_info_.size(); i++){
-          RCLCPP_INFO(logger, "robot names %s, %d", env.robot_info_[i].topic_name.c_str(), env.robot_info_[i].topic_name == "Husky");
-          if (env.robot_info_[i].topic_name == "Husky"){
-            env.robot_info_[i].image_subscriber->waiting_for_sync();
-          }
-        }
 
-        // picture taking (ignore point cloud, probably does not work with this version)
+        // picture taking (ignore point cloud, needs to implement with the robot names)
         if (reconstruct_point_clouds){
-          env.BuildPointClouds(true);
-          env.SavePointClouds();
-          env.SaveRobotImages();
+        //   env.BuildPointClouds(true);
+        //   env.SavePointClouds();
+        //   env.SaveRobotImages();
         } else {
-          env.SaveRobotImages();
+          env.SaveRobotImages("Husky", true);
         }
 
         // logging the environment
-        RCLCPP_INFO(logger, "Update Log");
+        // RCLCPP_INFO(logger, "Update Log");
+        env.waiting_for_sync();
         env.UpdateLog();
-        RCLCPP_INFO(logger, "LogUpdated");
+        // RCLCPP_INFO(logger, "LogUpdated");
         rclcpp::sleep_for(std::chrono::milliseconds(100));
       }
     }

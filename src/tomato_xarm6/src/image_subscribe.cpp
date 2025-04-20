@@ -3,7 +3,7 @@
 //#include "image_subscribe.hpp"
 
 namespace tomato_xarm6 {
-    ImageSubscriber::ImageSubscriber(std::string &node_name, double camera_FOV, int width, int height, bool capture_both, std::string &topic_name) 
+    ImageSubscriber::ImageSubscriber(const std::string &node_name, double camera_FOV, int width, int height, bool capture_both, std::string &topic_name) 
     {
         executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
 
@@ -42,7 +42,7 @@ namespace tomato_xarm6 {
                 std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
         //sync_->setMaxIntervalDuration(rclcpp::Duration::from_seconds(0.125));
-        video_writer_ = cv::VideoWriter("output.mp4", cv::VideoWriter::fourcc('X', '2', '6', '4'), 30, cv::Size(640, 480));
+        //video_writer_ = cv::VideoWriter("output.mp4", cv::VideoWriter::fourcc('X', '2', '6', '4'), 30, cv::Size(640, 480));
         waiting_msg_rgbd = true;
         waiting_msg_stereo = true;
         under_recon_ = false;
@@ -163,14 +163,14 @@ namespace tomato_xarm6 {
         if (executor_thread_.joinable()) {
            executor_thread_.join();
         }
-        video_writer_.release();
+        //video_writer_.release();
         cv::destroyAllWindows();
     }
 
     void ImageSubscriber::update_intrinsics(double fov, int width, int height)
     {
-        video_writer_.release();
-        video_writer_ = cv::VideoWriter("output.mp4", cv::VideoWriter::fourcc('X', '2', '6', '4'), 30, cv::Size(width, height));
+        //video_writer_.release();
+        //video_writer_ = cv::VideoWriter("output.mp4", cv::VideoWriter::fourcc('X', '2', '6', '4'), 30, cv::Size(width, height));
 
         double fx = (width / tan((fov*M_PI/180.0)/2.0)) / 2;
         double fy = fx;

@@ -73,7 +73,7 @@ namespace tomato_xarm6
         
         bool operator==(const RobotInfo& rhs) const;
         
-        void ConfigCamera(std::string &node_name, bool capture_both);
+        void ConfigCamera(const std::string &node_name, bool capture_both);
         void ParseData(const std::string& data);
 
         std::string csv_header;
@@ -103,7 +103,10 @@ namespace tomato_xarm6
         void UpdateLog();
         void SaveLog();
 
-        void SaveRobotImages();        
+        void StartRobotCamera(const std::string& robot_name, const std::string &node_name, bool capture_both);
+        void StopRobotCamera(const std::string& robot_name);
+
+        void SaveRobotImages(const std::string& robot_name, bool wait_for_sync_);        
         void EnvPublishCommand(const std::string& command);
         open3d::visualization::Visualizer visualizer;
     private:
