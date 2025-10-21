@@ -42,10 +42,13 @@ namespace tomato_xarm6 {
         tf_buffer_ = std::make_shared<tf2_ros::Buffer>(node_->get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
         visualizer.CreateVisualizerWindow("RGBD Image", 640, 480);
+
         env_publisher = node_->create_publisher<std_msgs::msg::String>("/ue5/game_commands", 10);
     }
 
-    EnvironmentInfo::~EnvironmentInfo() {}
+    EnvironmentInfo::~EnvironmentInfo() {
+        visualizer.DestroyVisualizerWindow();
+    }
 
     void EnvironmentInfo::waiting_for_sync(){
         waiting_msg = true;
@@ -53,15 +56,17 @@ namespace tomato_xarm6 {
             EnvPublishCommand("GetSceneInfo:0");
             environment_info_ = node_->create_subscription<std_msgs::msg::String>(
                 "/ue5/SceneInfo", 1, std::bind(&EnvironmentInfo::EnvStringCallback, this, std::placeholders::_1));
-            RCLCPP_INFO(node_->get_logger(), "waiting for sync - Environment");
+            RCLCPP_DEBUG(node_->get_logger(), "waiting for sync - Environment");
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            //visualizer.PollEvents();
+            //visualizer.UpdateRender();
             //rclcpp::spin_some(node_);
         }
-        RCLCPP_INFO(node_->get_logger(), "got Environment");
+        RCLCPP_DEBUG(node_->get_logger(), "got Environment");
     }
 
     void EnvironmentInfo::EnvStringCallback(const std_msgs::msg::String::ConstSharedPtr& msg) {
-        RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "EnvironmentInfo");
+        RCLCPP_DEBUG(rclcpp::get_logger("tomato_xarm6"), "EnvironmentInfo");
         ParseData(msg->data, robot_info_, plant_info_);
         waiting_msg = false;
     }
@@ -245,10 +250,10 @@ namespace tomato_xarm6 {
         }
         plant_log_file_.close();
     }
-    void EnvironmentInfo::StartRobotCamera(const std::string& robot_name, const std::string &node_name, bool capture_both) {
+    void EnvironmentInfo::StartRobotCamera(const std::string& robot_name, const std::string &node_name, bool capture_both, bool reduce_file_size) {
         for (size_t i = 0; i < robot_info_.size(); i++){
             if (robot_info_[i].topic_name == robot_name){
-                robot_info_[i].ConfigCamera(node_name, capture_both);
+                robot_info_[i].ConfigCamera(node_name, capture_both, reduce_file_size);
                 robot_info_[i].image_subscriber->start();
             }
         }
@@ -261,16 +266,29 @@ namespace tomato_xarm6 {
             }
         }
     }
-    void EnvironmentInfo::SaveRobotImages(const std::string& robot_name, bool wait_for_sync_)
+    void EnvironmentInfo::SaveRobotImages(std::vector<std::string> robot_names, bool wait_for_sync_)
     {
         for (size_t i = 0; i < robot_info_.size(); i++){
-            if (robot_info_[i].topic_name == robot_name){
+            if (std::find(robot_names.begin(), robot_names.end(), robot_info_[i].topic_name) != robot_names.end()){
                 if (wait_for_sync_) {
+                    RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6_camera"), "Reset images: %s", robot_info_[i].topic_name.c_str());
+                    robot_info_[i].image_subscriber->reset();
+                }
+            }
+        }
+        for (size_t i = 0; i < robot_info_.size(); i++){
+            if (std::find(robot_names.begin(), robot_names.end(), robot_info_[i].topic_name) != robot_names.end()){
+                if (wait_for_sync_) {
+                    RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6_camera"), "Waiting images: %s", robot_info_[i].topic_name.c_str());
                     robot_info_[i].image_subscriber->waiting_for_sync();
                 }
+            }
+        }
+        for (size_t i = 0; i < robot_info_.size(); i++){
+            if (std::find(robot_names.begin(), robot_names.end(), robot_info_[i].topic_name) != robot_names.end()){
                 robot_info_[i].image_subscriber->capture_count_ += 1;
-                RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6_camera"), "Saving images");
-                robot_info_[i].image_subscriber->save_images("output/robot/images_"+robot_name+"_"+std::to_string(creation_time_.seconds())+"/");
+                RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6_camera"), "Saving images: %s", robot_info_[i].topic_name.c_str());
+                robot_info_[i].image_subscriber->save_images("output/robot/"+save_prefix+"images_"+robot_info_[i].topic_name+"_"+std::to_string(creation_time_.seconds())+"/");
             }
         }
     }
@@ -361,8 +379,8 @@ namespace tomato_xarm6 {
         camera_quaternion = tokens[8];
     }
 
-    void RobotInfo::ConfigCamera(const std::string &node_name, bool capture_both) {
-        image_subscriber = std::make_shared<ImageSubscriber>(node_name, camera_FOV, camera_width, camera_height, capture_both, topic_name);
+    void RobotInfo::ConfigCamera(const std::string &node_name, bool capture_both, bool reduce_file_size) {
+        image_subscriber = std::make_shared<ImageSubscriber>(node_name, camera_FOV, camera_width, camera_height, capture_both, topic_name, reduce_file_size);
         RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6_camera"), "FOV: %f, width: %d, height: %d", camera_FOV, camera_width, camera_height);
 
         //image_subscriber->update_intrinsics(camera_FOV, camera_width, camera_height);
@@ -389,14 +407,14 @@ namespace tomato_xarm6 {
         }
         csv_data += ",";
         double base_transform_arr[9] = {0,0,0,0,0,0,0,0,0};
-        RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "%s", base_transforms.c_str());
+        RCLCPP_DEBUG(rclcpp::get_logger("tomato_xarm6"), "%s", base_transforms.c_str());
         ParseUE5TransformString(base_transforms, base_transform_arr);
         for (auto element : base_transform_arr){
             csv_data += std::to_string(element);
             csv_data += ",";
         }
         double cam_transform_arr[9] = {0,0,0,0,0,0,0,0,0};
-        RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "%s", camera_transforms.c_str());
+        RCLCPP_DEBUG(rclcpp::get_logger("tomato_xarm6"), "%s", camera_transforms.c_str());
         ParseUE5TransformString(camera_transforms, cam_transform_arr);
         for (auto element : cam_transform_arr){
             csv_data += std::to_string(element);

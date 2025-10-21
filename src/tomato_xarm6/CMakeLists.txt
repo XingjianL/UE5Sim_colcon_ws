@@ -37,13 +37,15 @@ set(SOURCES
     src/xarm6_moveit.cpp
     src/csv_parser.cpp
     src/image_subscribe.cpp
-    src/tomato_xarm6.cpp
+    
     src/unique_point_cloud.cpp
     src/environment_info.cpp
     src/planar_robot.cpp
+    
     # add other source files here
 )
-add_executable(tomato_xarm6 ${SOURCES})
+add_executable(tomato_xarm6 src/tomato_xarm6.cpp ${SOURCES})
+add_executable(tomato_data_gen src/tomato_data_gen.cpp ${SOURCES})
 
 target_include_directories(tomato_xarm6 PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -59,11 +61,22 @@ ament_target_dependencies(
   #message_filters
   #Open3D
 )
+ament_target_dependencies(
+  tomato_data_gen
+  moveit_ros_planning_interface
+  rclcpp
+  sensor_msgs
+  cv_bridge
+  OpenCV
+  #message_filters
+  #Open3D
+)
 
-install(TARGETS tomato_xarm6
+install(TARGETS tomato_xarm6 tomato_data_gen
   DESTINATION lib/${PROJECT_NAME})
 
 target_link_libraries(tomato_xarm6 Open3D::Open3D yaml-cpp)
+target_link_libraries(tomato_data_gen Open3D::Open3D yaml-cpp)
 
 
 if(BUILD_TESTING)

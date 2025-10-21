@@ -116,7 +116,7 @@ class NBV():
         def optimal_of_axis(axis, const_r = const_r, num_grad = num_grad):
             filter_mean, filter_val, filter_vec = self.filtered_pred_pcd_pca
             vec_axis = filter_vec[:,axis] / np.linalg.norm(filter_vec[:,axis])
-            distance_multi = 0.4
+            distance_multi = 0.4 # radius from center
             view_point_one = [filter_mean[0]+vec_axis[0]*distance_multi,
                               filter_mean[1]+vec_axis[1]*distance_multi,
                               filter_mean[2]+vec_axis[2]*distance_multi]
@@ -161,9 +161,13 @@ class NBV():
         start_t = time.time()
         positive_esti, negative_esti, falses, radii, view_angle = optimal_of_axis(axis)
         #print(time.time()-start_t)
-        optimal_r = radii[np.argmin(falses[:,0])]
+        if falses.ndim == 1:
+            index = np.argmin(falses)
+        else:
+            index = np.argmin(falses[:, 0])
+        optimal_r = radii[index]
         
-        optimal_estimates = [positive_esti[np.argmin(falses[:,0])], negative_esti[np.argmin(falses[:,0])]]
+        optimal_estimates = [positive_esti[index], negative_esti[index]]
         #print("finished")
         return {"positive_esti" : positive_esti, 
                 "negative_esti" : negative_esti, 

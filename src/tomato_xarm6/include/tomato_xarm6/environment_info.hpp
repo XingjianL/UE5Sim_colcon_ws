@@ -73,7 +73,7 @@ namespace tomato_xarm6
         
         bool operator==(const RobotInfo& rhs) const;
         
-        void ConfigCamera(const std::string &node_name, bool capture_both);
+        void ConfigCamera(const std::string &node_name, bool capture_both, bool reduce_file_size);
         void ParseData(const std::string& data);
 
         std::string csv_header;
@@ -103,12 +103,14 @@ namespace tomato_xarm6
         void UpdateLog();
         void SaveLog();
 
-        void StartRobotCamera(const std::string& robot_name, const std::string &node_name, bool capture_both);
+        void StartRobotCamera(const std::string& robot_name, const std::string &node_name, bool capture_both, bool reduce_file_size);
         void StopRobotCamera(const std::string& robot_name);
 
-        void SaveRobotImages(const std::string& robot_name, bool wait_for_sync_);        
+        void SaveRobotImages(std::vector<std::string> robot_names, bool wait_for_sync_);        
         void EnvPublishCommand(const std::string& command);
         open3d::visualization::Visualizer visualizer;
+        std::string save_prefix = "";
+        rclcpp::Time creation_time_;
     private:
         const std::string PLANTMARKER = "Tomato";
         const std::string ROBOTMARKER = "Robot";
@@ -120,8 +122,6 @@ namespace tomato_xarm6
         void ParseData(const std::string& data, std::vector<RobotInfo>& robot_info, std::vector<PlantInfo>& plant_info);
         std::vector<std::string> SplitByDelimiter(const std::string& data, const std::string& delimiter);
         rclcpp::Subscription<std_msgs::msg::String>::SharedPtr environment_info_;
-
-        rclcpp::Time creation_time_;
 
         int pc_build_count_;  
 

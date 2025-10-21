@@ -22,7 +22,7 @@ int main(int argc, char ** argv)
 
   printf("hello world tomato_xarm6 package\n");
 
-  bool reconstruct_point_clouds = false;
+  //bool reconstruct_point_clouds = false;
   int sample_gap = 4;
 
   // default arguments
@@ -37,12 +37,17 @@ int main(int argc, char ** argv)
   YAML::Node robot_positions;
   bool skip_init = false;
   std::string PCGSeedIncr = "0";
+  std::string save_prefix = "";
+  bool reduce_file_size = false;
   // add arguments here (see automation.sh for example usages)
   // MARK: Arg List
   for (int i = 1; i < argc; i++)
   {
     std::string arg = argv[i];
     RCLCPP_INFO(logger, arg.c_str());
+    if (arg == "--reduce-file-size") {
+      reduce_file_size = true;
+    }
     if (arg == "--reset-time") {
       reset_time = true;
     }
@@ -85,6 +90,10 @@ int main(int argc, char ** argv)
       PCGSeedIncr = argv[i+1];
       ++i;
     }
+    if (arg == "--save-prefix" && i + 1 < argc) {
+      save_prefix = argv[i+1];
+      ++i;
+    }
   }
   // MARK: Initializations
   std::mt19937 randgen(seed);
@@ -100,6 +109,7 @@ int main(int argc, char ** argv)
   );
 
   tomato_xarm6::EnvironmentInfo env(node);            // UE5 environment parser
+  env.save_prefix = save_prefix;
   //tomato_xarm6::XARM6MoveIt robot1("xarm6", node);    // MoveIt control
   tomato_xarm6::PlanarRobot benchbot_platform(node, "BenchBot");
   tomato_xarm6::PlanarRobot spider_platform(node, "Spider");
@@ -120,10 +130,10 @@ int main(int argc, char ** argv)
   env.waiting_for_sync();
   RCLCPP_INFO(logger, "Finished Environment Init");
 
-  env.StartRobotCamera("Husky", cam_node_name, capture_both);
+  env.StartRobotCamera("Husky", cam_node_name, capture_both, reduce_file_size);
   RCLCPP_INFO(logger, "Finished Husky Camera Init");
 
-  env.StartRobotCamera("BenchBot", cam_node_name, capture_both);
+  env.StartRobotCamera("BenchBot", cam_node_name, capture_both, reduce_file_size);
   RCLCPP_INFO(logger, "Finished Benchbot Camera Init");
 
   for (int i = 0; i < 1; i+=sample_gap){
@@ -137,7 +147,8 @@ int main(int argc, char ** argv)
       tomato_xarm6::PlanarRobot platform(node, robot_name);
       if (robot_name == "BenchBot") {
         platform.set_planar_targets(
-          x, 525, 25, 0
+          x, 525, 25, 
+          0,0,0
         );
         platform.set_joints_targets(
           {"benchbot_plate", "benchbot_camera"}, 
@@ -145,11 +156,13 @@ int main(int argc, char ** argv)
         );
       } else if (robot_name == "Spider") {
         platform.set_planar_targets(
-          x, y, 0, 0
+          x, y, 0, 
+          0,0,0
         );
       } else {
         platform.set_planar_targets(
-          x, y, 0, 0
+          x, y, 0, 
+          0,0,0
         );
       }
       rclcpp::sleep_for(std::chrono::milliseconds(3000));
@@ -160,18 +173,19 @@ int main(int argc, char ** argv)
     rclcpp::sleep_for(std::chrono::milliseconds(1000)); // wait for the robot in UE5 to settle
 
     // move benchbot
-    for (int plant_id_x = 0; plant_id_x < 7; plant_id_x++){ // 19
+    for (int plant_id_x = 0; plant_id_x < 10; plant_id_x++){ // 19
       double platform_pos_x = plant_id_x; //1.0 -> 19.0
       // move benchbot-amiga forward in small increments
-      for (int temp = 0; temp < 100; temp++){
+      for (int temp = 0; temp < 65; temp++){
         benchbot_platform.set_planar_targets(
-          platform_pos_x * 100 + temp * 1, 450, 25, 0
+          platform_pos_x * 100 + temp * 1, 450, 25, 
+          0, 0, 0
         );
         rclcpp::sleep_for(std::chrono::milliseconds(50));
       }
 
       // move benchbot-gantry-camera to scan
-      for (int plant_id_y = 1; plant_id_y < 6; plant_id_y++){ // 7
+      for (int plant_id_y = 1; plant_id_y < 2; plant_id_y++){ // 7
         double platform_pos_y = plant_id_y; // 2.0 -2.0-> 12.0 (14.0 -2.0-> 4.0)
         if (plant_id_x % 2) {
           benchbot_platform.set_joints_targets(
@@ -186,48 +200,47 @@ int main(int argc, char ** argv)
         }
         RCLCPP_INFO(logger, "set benchbot pos");
         rclcpp::sleep_for(std::chrono::milliseconds(2500));
-        env.SaveRobotImages("BenchBot", true);
+        env.SaveRobotImages({"BenchBot"}, true);
       }
     }
     //break;
 
     // move spider and husky
-    rclcpp::sleep_for(std::chrono::milliseconds(5000));
-    for (int plant_id_x = 1; plant_id_x < 36; plant_id_x++){ // 19
-      double platform_pos_x = plant_id_x; //1.0 -> 19.0
-      for (int plant_id_y = 1; plant_id_y < 2; plant_id_y++){ // 7
-        //double platform_pos_y = plant_id_y;
-        // spider set position (only planar, x,y,constant,constant)
-        spider_platform.set_planar_targets(
-          0 + platform_pos_x*10, 375, 0, 0
-        );
-        RCLCPP_INFO(logger, "set spider pos");
+    // rclcpp::sleep_for(std::chrono::milliseconds(5000));
+    // for (int plant_id_x = 1; plant_id_x < 36; plant_id_x++){ // 19
+    //   double platform_pos_x = plant_id_x; //1.0 -> 19.0
+    //   for (int plant_id_y = 1; plant_id_y < 2; plant_id_y++){ // 7
+    //     //double platform_pos_y = plant_id_y;
+    //     // spider set position (only planar, x,y,constant,constant)
+    //     spider_platform.set_planar_targets(
+    //       0 + platform_pos_x*10, 375, 0, 0
+    //     );
+    //     RCLCPP_INFO(logger, "set spider pos");
 
-        // husky set position
-        husky_platform.set_planar_targets(
-          platform_pos_x * 20, 525, 0, 0
-        );
-        RCLCPP_INFO(logger, "set husky pos");
+    //     // husky set position
+    //     husky_platform.set_planar_targets(
+    //       platform_pos_x * 20, 525, 0, 0
+    //     );
+    //     RCLCPP_INFO(logger, "set husky pos");
 
-        // picture taking (ignore point cloud, needs to implement with the robot names)
-        if (reconstruct_point_clouds){
-        //   env.BuildPointClouds(true);
-        //   env.SavePointClouds();
-        //   env.SaveRobotImages();
-        } else {
-          env.SaveRobotImages("Husky", true);
-        }
+    //     // picture taking (ignore point cloud, needs to implement with the robot names)
+    //     if (reconstruct_point_clouds){
+    //     //   env.BuildPointClouds(true);
+    //     //   env.SavePointClouds();
+    //     //   env.SaveRobotImages();
+    //     } else {
+    //       //env.SaveRobotImages("Husky", true);
+    //     }
 
-        // logging the environment
-        // RCLCPP_INFO(logger, "Update Log");
-        env.waiting_for_sync();
-        env.UpdateLog();
-        // RCLCPP_INFO(logger, "LogUpdated");
-        rclcpp::sleep_for(std::chrono::milliseconds(100));
-      }
-    }
+    //     // logging the environment
+    //     // RCLCPP_INFO(logger, "Update Log");
+    //     env.waiting_for_sync();
+    //     env.UpdateLog();
+    //     // RCLCPP_INFO(logger, "LogUpdated");
+    //     rclcpp::sleep_for(std::chrono::milliseconds(100));
+    //   }
+    // }
   }
-  
   //env.robot_info_[0].WriteVideo();
   RCLCPP_INFO(logger, "Saving Env File");
   env.SaveLog();
@@ -235,7 +248,7 @@ int main(int argc, char ** argv)
   for (size_t i = 0; i < env.robot_info_.size(); i++){
     RCLCPP_INFO(logger, "robot names %s, %d", env.robot_info_[i].topic_name.c_str(), env.robot_info_[i].topic_name == "BenchBot");
     if (env.robot_info_[i].topic_name == "Husky"){
-      env.robot_info_[i].ConfigCamera(cam_node_name, capture_both);
+      env.robot_info_[i].ConfigCamera(cam_node_name, capture_both, reduce_file_size);
       env.robot_info_[i].image_subscriber->stop();
     }
   }

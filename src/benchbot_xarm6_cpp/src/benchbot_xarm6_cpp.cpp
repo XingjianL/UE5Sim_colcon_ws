@@ -58,6 +58,7 @@ int main(int argc, char ** argv)
       capture_both = true;
     }
     if (arg == "--pred" && arg_i + 1 < argc) {
+      // use NBV or not, and some settings in NBV see pred_option
       pred_option = argv[arg_i+1];
       pred = true;
       run_config += argv[arg_i+1];
@@ -72,11 +73,13 @@ int main(int argc, char ** argv)
       ++arg_i;
     }
     if (arg == "--arm-sample-gap" && arg_i + 1 < argc) {
+      // sample within the plants
       sample_gap = std::stoi(argv[arg_i+1]);
       run_config += argv[arg_i+1];
       ++arg_i;
     }
     if (arg == "--bench-sample-gap" && arg_i + 1 < argc) {
+      // plants
       plant_id_gap = std::stoi(argv[arg_i+1]);
       run_config += argv[arg_i+1];
       ++arg_i;
@@ -87,9 +90,12 @@ int main(int argc, char ** argv)
       ++arg_i;
     }
     if (arg == "--closest") {
+      // filter for the closest plant (filter out captures of other plants)
       closest = true;
     }
     if (arg == "--nbv-color-id" && arg_i + 1 < argc) {
+      // -1: SemP-NBV
+      // other: specify a particular color to look for in the NBV algorithm
       nbv_color_id = std::stoi(argv[arg_i+1]);
       run_config += argv[arg_i+1];
       ++arg_i;
@@ -163,7 +169,7 @@ int main(int argc, char ** argv)
   rclcpp::get_logger("move_group_interface").set_level(rclcpp::Logger::Level::Error);
   rclcpp::get_logger("benchbot_debug").set_level(rclcpp::Logger::Level::Debug);
   //for (int xarm_sample = 0; xarm_sample < 5 * 16; xarm_sample+=sample_gap){
-  for (int plant_id = 0; plant_id < 7*7; plant_id+=plant_id_gap){
+  for (int plant_id = 0; plant_id < 3*7; plant_id+=plant_id_gap){
     geometry_msgs::msg::Point move_goal;
     geometry_msgs::msg::Point look_at_goal;
 

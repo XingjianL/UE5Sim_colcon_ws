@@ -36,16 +36,16 @@ namespace tomato_xarm6
         publish_planar_robot();
         publish_joints_robot();
     }
-    void PlanarRobot::set_planar_targets(double x, double y, double z, double rand_rot){
+    void PlanarRobot::set_planar_targets(double x, double y, double z, double rx, double ry, double rz){
         // Set the translation
         transform_.translation.x = x;
         transform_.translation.y = y;
         transform_.translation.z = z;
 
         Eigen::Quaterniond q1(1,0,0,0);
-        Eigen::Quaterniond rand_q = Eigen::AngleAxisd(rand_rot, Eigen::Vector3d::UnitZ()) *
-                                    Eigen::AngleAxisd(rand_rot, Eigen::Vector3d::UnitY()) *
-                                    Eigen::AngleAxisd(rand_rot, Eigen::Vector3d::UnitX());
+        Eigen::Quaterniond rand_q = Eigen::AngleAxisd(rz, Eigen::Vector3d::UnitZ()) *
+                                    Eigen::AngleAxisd(ry, Eigen::Vector3d::UnitY()) *
+                                    Eigen::AngleAxisd(rx, Eigen::Vector3d::UnitX());
         Eigen::Quaterniond final_rot = rand_q * q1;
 
         // Set the rotation (quaternion)
