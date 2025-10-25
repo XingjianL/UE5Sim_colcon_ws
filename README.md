@@ -2,6 +2,8 @@
 
 This instruction is in progress, there could be error messages for missing dependencies.
 
+Check `environment_configuration.txt` for the order of commands to set up in a fresh WSL Ubuntu2204 environment
+
 ### ROS2-Humble
 1. Follow instructions here [https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html](https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html)
 
