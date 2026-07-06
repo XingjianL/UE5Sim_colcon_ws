@@ -14,6 +14,7 @@ namespace tomato_xarm6
             std::to_string(std::get<1>(segment_color)) + "_" + 
             std::to_string(std::get<2>(segment_color)) + ".pcd";
         pc_updated = false;
+        base_transform.setIdentity();
     }
 
     UniquePointCloud::UniquePointCloud(std::tuple<uint8_t, uint8_t, uint8_t> segment_color)//, open3d::camera::PinholeCameraIntrinsic intrinsics)
@@ -33,10 +34,9 @@ namespace tomato_xarm6
     bool UniquePointCloud::buildPointCloud(
         cv::Mat &depth_img, cv::Mat &segment_img, cv::Mat &color_img, 
         std::tuple<uint8_t, uint8_t, uint8_t> color, 
-        const Eigen::Matrix4d & transform,
         const open3d::camera::PinholeCameraIntrinsic &intrinsics_,
         std::string& save_intermediate,
-        open3d::visualization::Visualizer& visualizer)
+        const Eigen::Matrix4d & apply_transform)
     {
         if (color != segment_color) {
             return false;
@@ -53,7 +53,7 @@ namespace tomato_xarm6
         cv::Mat mask;
         masked_image.convertTo(mask, CV_8U);
         depth_img.copyTo(depth_masked, mask);
-
+        //depth_masked += 10*(mask/255.0f);
         if (depth_masked.type() != CV_32FC1) {
             std::cerr << "Incorrect depth type" << std::endl;
         }
@@ -68,20 +68,13 @@ namespace tomato_xarm6
         
         auto rgbd_image = open3d::geometry::RGBDImage::CreateFromColorAndDepth(o3d_rgb_image, o3d_depth_image, 100.0, 10.0, false);
 
-        visualizer.ClearGeometries();
-        visualizer.AddGeometry(rgbd_image);
-        visualizer.UpdateGeometry();
-        visualizer.PollEvents();
-        visualizer.UpdateRender();
-        
-        //visualizer.Run();
-
         auto pcd = open3d::geometry::PointCloud::CreateFromRGBDImage(
             *rgbd_image, intrinsics_
         );
-
-        pcd->Transform(transform);
-
+        if (pcd->points_.size() == 0) {
+            return true;
+        }
+        pcd->Transform(apply_transform);
         // save point cloud of this particular rgbd image
         if (!save_intermediate.empty() && pcd->points_.size() > 256)
         {
@@ -94,6 +87,8 @@ namespace tomato_xarm6
         return appendPointCloud(pcd, segment_color);
 
     }
+
+
 
     bool UniquePointCloud::appendPointCloud(
         std::shared_ptr<open3d::geometry::PointCloud> pc, 
@@ -118,10 +113,10 @@ namespace tomato_xarm6
         return true;
     }
 
-    void UniquePointCloud::savePointCloud(std::string& filepath)
+    void UniquePointCloud::savePointCloud(std::string& filepath, bool apply_base_transform)
     {
-        if (o3d_pc->points_.size() < 3000) {
-            //std::cout << "not enough points to save: " << filename_ << " " << o3d_pc->points_.size() << std::endl;
+        if (o3d_pc->points_.size() < 100) {
+            std::cout << "not enough points to save: " << filename_ << " " << o3d_pc->points_.size() << std::endl;
             return;
         }
         if (!pc_updated){
@@ -133,8 +128,53 @@ namespace tomato_xarm6
             std::filesystem::create_directories(path);
         }
         o3d_pc = o3d_pc->VoxelDownSample(0.005);
-        //std::cout << "savePointCloud: " << filename_ << " " << o3d_pc->points_.size() << std::endl;
+        if (apply_base_transform){
+            o3d_pc->Transform(base_transform);
+        }
+        std::cout << "savePointCloud: " << filename_ << " " << o3d_pc->points_.size() << std::endl;
         open3d::io::WritePointCloudOption o3d_option(true);
         open3d::io::WritePointCloud(filepath + filename_, *o3d_pc, o3d_option);
+        if (apply_base_transform){
+            o3d_pc->Transform(base_transform.inverse());
+        }
+    }
+    std::shared_ptr<open3d::geometry::PointCloud> UniquePointCloud::GeneratePointCloud(
+            cv::Mat &depth_img, cv::Mat &segment_img, cv::Mat &color_img, 
+            uint8_t semantic, 
+            const open3d::camera::PinholeCameraIntrinsic &intrinsics_,
+            const Eigen::Matrix4d &apply_transform) 
+    {
+        auto masked_image = segment_img.clone();
+        cv::inRange(
+            segment_img, 
+            cv::Scalar(0, 0, semantic), 
+            cv::Scalar(255, 255, semantic), 
+            masked_image);
+
+        cv::Mat depth_masked = cv::Mat::zeros(depth_img.size(), depth_img.type());
+
+        cv::Mat mask;
+        masked_image.convertTo(mask, CV_8U);
+        depth_img.copyTo(depth_masked, mask);
+        //depth_masked += 10*(mask/255.0f);
+        if (depth_masked.type() != CV_32FC1) {
+            std::cerr << "Incorrect depth type" << std::endl;
+        }
+
+        open3d::geometry::Image o3d_rgb_image;
+        o3d_rgb_image.Prepare(color_img.cols, color_img.rows, color_img.channels(), 1);
+        std::memcpy(o3d_rgb_image.data_.data(), color_img.data, o3d_rgb_image.data_.size());
+
+        open3d::geometry::Image o3d_depth_image;
+        o3d_depth_image.Prepare(depth_masked.cols, depth_masked.rows, depth_masked.channels(), 4);
+        std::memcpy(o3d_depth_image.data_.data(), depth_masked.data, o3d_depth_image.data_.size());
+        
+        auto rgbd_image = open3d::geometry::RGBDImage::CreateFromColorAndDepth(o3d_rgb_image, o3d_depth_image, 100.0, 2.0, false);
+
+        auto pcd = open3d::geometry::PointCloud::CreateFromRGBDImage(
+            *rgbd_image, intrinsics_
+        );
+        pcd->Transform(apply_transform);
+        return pcd;
     }
 }

@@ -23,6 +23,7 @@ int main(int argc, char ** argv)
 
   printf("hello world tomato_xarm6 package\n");
 
+  bool reconstruct_point_clouds = true;
   int sample_gap = 4;
 
   // default arguments
@@ -149,7 +150,7 @@ int main(int argc, char ** argv)
 
   tomato_xarm6::EnvironmentInfo env(node);            // UE5 environment parser
   env.save_prefix = save_prefix;
-  std::string arg_file_name = "output/robot/tomato_xarm6_" + std::to_string(env.creation_time_.seconds()) + ".txt";
+  std::string arg_file_name = "output/robot/tomato_instance_gen_" + std::to_string(env.creation_time_.seconds()) + ".txt";
   std::ofstream outfile(arg_file_name);
     if (!outfile) {
         std::cerr << "Error opening file for writing.\n";
@@ -167,8 +168,8 @@ int main(int argc, char ** argv)
   tomato_xarm6::PlanarRobot husky_platform(node, "Husky");
   std::thread spin_thread(spin_node_in_thread, node);
 
-  std::string cam_node_name1 = "camera_rgbd";
-  std::string cam_node_name2 = "camera_stereo";
+  std::string cam_node_name1 = "rgbd_camera";
+  std::string cam_node_name2 = "stereo_camera";
 
   std::string hitscan_node_name = "tomato_xarm6_hitscan";
   // MARK: UE5 Init
@@ -182,7 +183,7 @@ int main(int argc, char ** argv)
     rclcpp::sleep_for(std::chrono::milliseconds(10000));
   }
   env.waiting_for_sync();
-  RCLCPP_INFO(logger, "Finished Environment Init");
+  RCLCPP_INFO(logger, "Finished Environment Init %d", capture_both);
   env.EnvPublishCommand("CamPub:1");
   env.StartRobotCamera("Husky", cam_node_name1, cam_node_name2, capture_both, reduce_file_size);
   RCLCPP_INFO(logger, "Finished Husky Camera Init");
@@ -190,17 +191,17 @@ int main(int argc, char ** argv)
   // env.StartRobotCamera("BenchBot", cam_node_name, capture_both, reduce_file_size);
   // RCLCPP_INFO(logger, "Finished Benchbot Camera Init");
 
-  // auto huskyID = env.GetRobotID("Husky");
-  // tomato_xarm6::HitScan hitscan(
-  //   hitscan_node_name,
-  //   env.robot_info_[huskyID].camera_FOV,
-  //   env.robot_info_[huskyID].camera_width,
-  //   env.robot_info_[huskyID].camera_height,
-  //   "Husky",
-  //   reduce_file_size,
-  //   env.creation_time_
-  // );
-  // hitscan.start();
+  auto huskyID = env.GetRobotID("Husky");
+  tomato_xarm6::HitScan hitscan(
+    hitscan_node_name,
+    env.robot_info_[huskyID].camera_FOV,
+    env.robot_info_[huskyID].camera_width,
+    env.robot_info_[huskyID].camera_height,
+    "Husky",
+    reduce_file_size,
+    env.creation_time_
+  );
+  hitscan.start();
 
   for (int i = 0; i < 1; i+=sample_gap){
 
@@ -234,86 +235,63 @@ int main(int argc, char ** argv)
       rclcpp::sleep_for(std::chrono::milliseconds(3000));
     }
 
-    // break; // testing move-robot
-
-    //rclcpp::sleep_for(std::chrono::milliseconds(1000)); // wait for the robot in UE5 to settle
-
-    // move benchbot
-    // for (int plant_id_x = 0; plant_id_x < 10; plant_id_x++){ // 19
-    //   double platform_pos_x = plant_id_x; //1.0 -> 19.0
-    //   // move benchbot-amiga forward in small increments
-    //   for (int temp = 0; temp < 65; temp++){
-    //     benchbot_platform.set_planar_targets(
-    //       platform_pos_x * 100 + temp * 1, 450, 25, 
-    //       0, 0, 0
-    //     );
-    //     rclcpp::sleep_for(std::chrono::milliseconds(50));
-    //   }
-
-    //   // move benchbot-gantry-camera to scan
-    //   for (int plant_id_y = 1; plant_id_y < 6; plant_id_y++){ // 7
-    //     double platform_pos_y = plant_id_y; // 2.0 -2.0-> 12.0 (14.0 -2.0-> 4.0)
-    //     if (plant_id_x % 2) {
-    //       benchbot_platform.set_joints_targets(
-    //         {"benchbot_plate", "benchbot_camera"}, 
-    //         {platform_pos_y * 150-200, 100}
-    //       );
-    //     } else {
-    //       benchbot_platform.set_joints_targets(
-    //         {"benchbot_plate", "benchbot_camera"}, 
-    //         {-platform_pos_y * 150+ 6 * 150 - 200, 100}
-    //       );
-    //     }
-    //     RCLCPP_INFO(logger, "set benchbot pos");
-    //     rclcpp::sleep_for(std::chrono::milliseconds(2500));
-    //     env.SaveRobotImages({"BenchBot"}, true);
-    //   }
-    // }
-    //break;
-
     // move spider and husky
     //rclcpp::sleep_for(std::chrono::milliseconds(5000));
     for (int plant_id_x = 1; plant_id_x < 11; plant_id_x++){ // 19
       double platform_pos_x = plant_id_x; //1.0 -> 19.0
-      for (int plant_id_y = 1; plant_id_y < 6; plant_id_y++){ // 7
-        //double platform_pos_y = plant_id_y;
-        // spider set position (only planar, x,y,constant,constant)
-        // spider_platform.set_planar_targets(
-        //   0 + platform_pos_x*10, 375, 0, 0
-        // );
-        // RCLCPP_INFO(logger, "set spider pos");
-
-        // husky set position
-        // husky_platform.set_planar_targets(
-        //   150, -100.f + 150.f*plant_id_y, 0.f, 0.f+distribution(randgen), 0.f+distribution(randgen), 0.f+distribution(randgen)
-        // );
-        // husky_platform.set_planar_targets(
-        //   150, -100.f + 150.f*plant_id_y, 0.f, 0.f, 0.f, 0.f
-        // );
-        env.EnvPublishCommand("CamPub:0");
+      for (int plant_id_y = 1; plant_id_y < 2; plant_id_y++){ // 7
+        
         husky_platform.set_planar_targets(
-          platform_pos_x * 40 + rand_x_offset(randgen) + const_x_offset, 
+          platform_pos_x * 10 + rand_x_offset(randgen) + const_x_offset, 
           plant_id_y * 150 + rand_y_offset(randgen) + const_y_offset,
           0 + rand_z_offset(randgen)+ const_z_offset,
           rand_roll_offset(randgen) + const_roll_offset, 
           rand_pitch_offset(randgen) + const_pitch_offset,
           rand_yaw_offset(randgen) + const_yaw_offset
         );
+        // husky_platform.set_planar_targets(
+        //   platform_pos_x * 0 + rand_x_offset(randgen) + const_x_offset, 
+        //   plant_id_y * 0 + rand_y_offset(randgen) + const_y_offset,
+        //   0 + rand_z_offset(randgen)+ const_z_offset,
+        //   rand_roll_offset(randgen) + const_roll_offset, 
+        //   rand_pitch_offset(randgen) + const_pitch_offset,
+        //   rand_yaw_offset(randgen) + const_yaw_offset
+        // );
         rclcpp::sleep_for(std::chrono::milliseconds(1000));
-        
+
         env.waiting_for_sync();
-        RCLCPP_INFO(logger, "set husky pos");
         env.EnvPublishCommand("CamPub:1");
         rclcpp::sleep_for(std::chrono::milliseconds(1000));
-        env.SaveRobotImages({"Husky"}, true);
+        RCLCPP_INFO(logger, "set husky pos");
+        // picture taking (ignore point cloud, needs to implement with the robot names)
+        if (reconstruct_point_clouds){
+          env.SaveRobotImages({"Husky"}, true);
+          env.EnvPublishCommand("CamPub:0");
+          {
+            std::lock_guard<std::mutex> lock(env.robot_info_[huskyID].image_subscriber->callback_mutex);
+            hitscan.cv_img_ = env.robot_info_[huskyID].image_subscriber->cv_img_.clone();
+            hitscan.cv_img_depth_ = env.robot_info_[huskyID].image_subscriber->cv_img_depth_.clone();
+            hitscan.cv_img_segment_ = env.robot_info_[huskyID].image_subscriber->cv_img_segment_.clone();
+          }
+          RCLCPP_INFO(logger, "requesting trace instances");
+          hitscan.GenerateTracedInstance(
+            {121,123,126}, 
+            "", 
+            env.robot_info_[huskyID].ComputeUE5CameraTransform(),
+            2000+plant_id_x+plant_id_y
+          );
+          env.EnvPublishCommand("HitPub:0");
 
+        } else {
+          //env.SaveRobotImages("Husky", true);
+        }
 
-    //     // logging the environment
-    //     // RCLCPP_INFO(logger, "Update Log");
+        // logging the environment
+        // RCLCPP_INFO(logger, "Update Log");
         env.waiting_for_sync();
         env.UpdateLog();
-    //     // RCLCPP_INFO(logger, "LogUpdated");
-    //     rclcpp::sleep_for(std::chrono::milliseconds(100));
+        // RCLCPP_INFO(logger, "LogUpdated");
+        rclcpp::sleep_for(std::chrono::milliseconds(100));
       }
     }
   }

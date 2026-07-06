@@ -13,7 +13,7 @@ namespace tomato_xarm6
         joints_publisher_ = node_->create_publisher<sensor_msgs::msg::JointState>("ue5/"+robot_prefix+"/joint_states",10);
 
         timer_ = node_->create_wall_timer(
-            std::chrono::milliseconds(100),
+            std::chrono::milliseconds(10),
             std::bind(&PlanarRobot::publish_both, this)
         );
     }

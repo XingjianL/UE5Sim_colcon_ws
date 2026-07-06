@@ -168,7 +168,8 @@ int main(int argc, char ** argv)
   tomato_xarm6::PlanarRobot husky_platform(node, "Husky");
   std::thread spin_thread(spin_node_in_thread, node);
 
-  std::string cam_node_name = "tomato_xarm6_camera";
+  std::string cam_node_name1 = "rgbd_camera";
+  std::string cam_node_name2 = "stereo_camera";
   // MARK: UE5 Init
   if (!skip_init){
     rclcpp::sleep_for(std::chrono::milliseconds(2000));
@@ -182,10 +183,10 @@ int main(int argc, char ** argv)
   env.waiting_for_sync();
   RCLCPP_INFO(logger, "Finished Environment Init");
 
-  env.StartRobotCamera("Husky", cam_node_name, capture_both, reduce_file_size);
+  env.StartRobotCamera("Husky", cam_node_name1, cam_node_name2, capture_both, reduce_file_size);
   RCLCPP_INFO(logger, "Finished Husky Camera Init");
 
-  env.StartRobotCamera("BenchBot", cam_node_name, capture_both, reduce_file_size);
+  env.StartRobotCamera("BenchBot", cam_node_name1, cam_node_name2, capture_both, reduce_file_size);
   RCLCPP_INFO(logger, "Finished Benchbot Camera Init");
 
   for (int i = 0; i < 1; i+=sample_gap){
@@ -225,7 +226,7 @@ int main(int argc, char ** argv)
     rclcpp::sleep_for(std::chrono::milliseconds(1000)); // wait for the robot in UE5 to settle
     // move spider and husky
     //rclcpp::sleep_for(std::chrono::milliseconds(5000));
-    for (int plant_id_x = 0; plant_id_x < 1; plant_id_x++){ // 19
+    for (int plant_id_x = 0; plant_id_x < 18; plant_id_x++){ // 19
       double platform_pos_x = plant_id_x; //1.0 -> 19.0
       benchbot_platform.set_planar_targets(
         platform_pos_x * 50 + 65 + rand_x_offset(randgen) + const_x_offset, 

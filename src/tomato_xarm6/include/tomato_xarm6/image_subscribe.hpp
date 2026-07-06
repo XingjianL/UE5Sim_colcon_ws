@@ -24,13 +24,19 @@
 
 
 #include "tomato_xarm6/unique_point_cloud.hpp"
+#include <atomic>
 
 namespace tomato_xarm6
 {
     class ImageSubscriber
     {
     public:
-        ImageSubscriber(const std::string &node_name, double camera_FOV, int width, int height, bool capture_both, std::string &topic_name, bool reduce_file_size);
+        ImageSubscriber(
+            const std::string &node_name_rgbd,
+            const std::string &node_name_stereo,
+            double camera_FOV, int width, int height,
+            bool capture_both, std::string &topic_name, bool reduce_file_size
+        );
         ~ImageSubscriber();
 
         void start();
@@ -40,19 +46,23 @@ namespace tomato_xarm6
         int capture_count_ = 0;
         bool process_to_pc( 
             std::vector<UniquePointCloud>& unique_pcs,
-            const Eigen::Matrix4d &transform,
             uint8_t instance_id_g, 
             uint8_t instance_id_b,
             std::string& save_intermediate,
-            open3d::visualization::Visualizer& visualizer
+            const Eigen::Matrix4d &apply_transform = Eigen::Matrix4d::Identity()
             );
+        std::shared_ptr<open3d::geometry::PointCloud> CurrentFrameSemanticPCD(
+            uint8_t semantic_id,
+            const Eigen::Matrix4d &apply_transform = Eigen::Matrix4d::Identity()
+        );
         void save_images(std::string path);
         void clear_images();
 
-        cv::VideoWriter video_writer_;
         std::queue<cv::Mat> image_queue_;
         std::mutex image_queue_mutex_;
 
+        std::mutex callback_mutex;
+        std::string cv_img_id_;
         cv::Mat cv_img_;
         cv::Mat cv_img_segment_;
         cv::Mat cv_img_depth_;
@@ -63,9 +73,9 @@ namespace tomato_xarm6
         void reset();
         bool under_recon_;
         bool capture_both_ = false;
-        bool waiting_msg_rgbd = true;
-        bool waiting_msg_stereo = true;
-        std::mutex waiting_msg_mutex;
+        std::atomic<bool> waiting_msg_rgbd = true;
+        std::atomic<bool> waiting_msg_stereo = true;
+        //std::mutex waiting_msg_mutex;
 
         bool reduce_file_size_ = true;
         
@@ -76,10 +86,12 @@ namespace tomato_xarm6
         std::set<std::tuple<uchar, uchar, uchar>> uniqueColors_;
         open3d::camera::PinholeCameraIntrinsic intrinsics_;
 
-        rclcpp::Node::SharedPtr node_;
-        void RGBImageCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg);
-        void SegmentImageCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg);
-        void DepthImageCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg);
+        rclcpp::Node::SharedPtr node_rgbd_;
+        rclcpp::Node::SharedPtr node_stereo_;
+
+        std::string RGBImageCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg);
+        std::string SegmentImageCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg);
+        std::string DepthImageCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg);
 
         rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_color_;
         rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_segment_;
@@ -108,7 +120,9 @@ namespace tomato_xarm6
         std::unique_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> sync_sub_segment_;
         std::unique_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> sync_sub_depth_;
         std::unique_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> sync_sub_depth1_;
-
+        std::unique_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> sync_rgbd_segment_;
+        std::unique_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> sync_rgbd_depth_;
+        std::unique_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> sync_rgbd_color_;
         // change the template to number of sync_sub above
         typedef message_filters::sync_policies::ApproximateTime
         <   sensor_msgs::msg::Image, 
@@ -123,8 +137,10 @@ namespace tomato_xarm6
             sensor_msgs::msg::Image> ApproxTimeSyncPolicyRGBD;
         std::shared_ptr<message_filters::Synchronizer<ApproxTimeSyncPolicyRGBD>> rgbd_sync_;
 
-        std::thread executor_thread_;
-        rclcpp::executors::SingleThreadedExecutor::SharedPtr executor_;
+        std::thread rgbd_thread_;
+        std::thread stereo_thread_;
+        rclcpp::executors::SingleThreadedExecutor::SharedPtr executor_rgbd_;
+        rclcpp::executors::SingleThreadedExecutor::SharedPtr executor_stereo_;
     };
 }
 #endif

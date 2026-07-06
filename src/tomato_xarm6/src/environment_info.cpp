@@ -5,7 +5,11 @@
 #include <filesystem>
 
 namespace tomato_xarm6 {
-
+    const Eigen::Matrix4d UnrealToBlender = (Eigen::Matrix4d() << 
+            0,  1,  0,  0,
+            0,  0,  -1,  0,
+            1,  0,  0,  0,
+            0,  0,  0,  1).finished();
     /** 
      * transform format would be "Translation: X= Y= Z= Rotation: P= Y= R= Scale: X= Y= Z="
      * see https://docs.unrealengine.com/4.26/en-US/BlueprintAPI/Utilities/String/ToString_transform/
@@ -20,7 +24,7 @@ namespace tomato_xarm6 {
             RCLCPP_WARN(rclcpp::get_logger("benchbot_xarm_cpp"), "Incorrect Transform Message: %s", transform.c_str());
             return;
         }
-        result[0] = -std::stod(tokens[1]); // negative because x-axis in UE is in opposite direction than ROS
+        result[0] = std::stod(tokens[1]);
         result[1] = std::stod(tokens[2]);
         result[2] = std::stod(tokens[3]);
         result[3] = std::stod(tokens[4]);
@@ -41,13 +45,13 @@ namespace tomato_xarm6 {
         //robot_info_.resize(1);
         tf_buffer_ = std::make_shared<tf2_ros::Buffer>(node_->get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
-        visualizer.CreateVisualizerWindow("RGBD Image", 640, 480);
+        //visualizer.CreateVisualizerWindow("RGBD Image", 640, 480);
 
         env_publisher = node_->create_publisher<std_msgs::msg::String>("/ue5/game_commands", 10);
     }
 
     EnvironmentInfo::~EnvironmentInfo() {
-        visualizer.DestroyVisualizerWindow();
+        //visualizer.DestroyVisualizerWindow();
     }
 
     void EnvironmentInfo::waiting_for_sync(){
@@ -133,6 +137,25 @@ namespace tomato_xarm6 {
                     RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "adding new robot: %s", result[0][i].c_str());
                     robot_info.push_back(robot);
                 }
+            } else if (result[0][i].substr(0, SEMANTICMARKER.length()) == SEMANTICMARKER) {
+                SemanticInfo semantic;
+                semantic.id_str = result[0][i].substr(SEMANTICMARKER.length());
+                semantic.ParseData(result[1][i]);
+                bool found = false;
+                for(auto &existing_semantic : semantic_info_){
+                    // check if robot with same properties exist
+                    if(existing_semantic == semantic){
+                        // need to update the existing robot for updated position
+                        found = true;
+                        //RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "semantic already logged: %s", result[0][i].c_str());
+                        break;
+                    }
+                }
+                if(!found){
+                    semantic.UpdateLog();
+                    RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "adding new semantic: %s", result[0][i].c_str());
+                    semantic_info_.push_back(semantic);
+                }
             }
         }
     }
@@ -152,37 +175,46 @@ namespace tomato_xarm6 {
         robot_info_.clear();
         plant_info_.clear();
     }
-
-    void EnvironmentInfo::BuildPointClouds(bool save_intermediate) {
+    
+    void EnvironmentInfo::BuildPointClouds(
+        bool save_intermediate, 
+        const std::string& robot_name, 
+        const std::string& frame_tf_lookup
+    ) {
         RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "EnvironmentInfo::BuildPointClouds: Started");
-        robot_info_[0].image_subscriber->under_recon_ = true;
+        int robot_id = GetRobotID(robot_name);
+        robot_info_[robot_id].image_subscriber->under_recon_ = true;
         pc_build_count_ += 1;
-
-        // Parse UE5 robot base transformation to world
-        double ue5_robot_base[9] = {0,0,0,0,0,0,0,0,0};
-        ParseUE5TransformString(robot_info_[0].base_transforms, ue5_robot_base);
         
         Eigen::Matrix4d transformation_mat_;
         transformation_mat_.setIdentity();
-
-        // find transform between base (world) to camera
-        auto frame_transform = tf_buffer_->lookupTransform(
-            "world", "link_eef", rclcpp::Time(0)
-        );
-
-        const auto &translation = frame_transform.transform.translation;
-        const auto &rotation = frame_transform.transform.rotation;
-        Eigen::Quaterniond q(rotation.w, rotation.x, rotation.y, rotation.z);
-        q.normalize();
-        Eigen::Matrix3d rot = q.toRotationMatrix();
-        transformation_mat_.block<3, 3>(0, 0) = rot;
-        transformation_mat_(0, 3) = translation.x - ue5_robot_base[0]/100.0;
-        transformation_mat_(1, 3) = translation.y - ue5_robot_base[1]/100.0;
-        transformation_mat_(2, 3) = translation.z;
-        
+        geometry_msgs::msg::TransformStamped frame_transform;
+        // find ROS transform between base (world) to camera
+        if (tf_buffer_->canTransform("world", frame_tf_lookup, tf2::TimePointZero)) {
+            frame_transform = tf_buffer_->lookupTransform(
+                "world", frame_tf_lookup, tf2::TimePointZero
+            );
+            
+            const auto &translation = frame_transform.transform.translation;
+            const auto &rotation = frame_transform.transform.rotation;
+            Eigen::Quaterniond q(rotation.w, rotation.x, rotation.y, rotation.z);
+            q.normalize();
+            Eigen::Matrix3d rot = q.toRotationMatrix();
+            transformation_mat_.block<3, 3>(0, 0) = rot;
+            transformation_mat_ = UnrealToBlender.inverse() * transformation_mat_; // rotation correction
+            transformation_mat_(0, 3) = translation.x - robot_info_[robot_id].base_transforms[0]/100.0;
+            transformation_mat_(1, 3) = translation.y - robot_info_[robot_id].base_transforms[1]/100.0;
+            transformation_mat_(2, 3) = translation.z + robot_info_[robot_id].base_transforms[2]/100.0;
+        } else {
+            // compute the point cloud in UE5 coords and scale (cm) using UE5 logged camera position
+            RCLCPP_WARN(rclcpp::get_logger("tomato_xarm6"), 
+                "Transform between 'world' and '%s' not found, using RobotInfo Camera", frame_tf_lookup.c_str());
+            transformation_mat_ = robot_info_[robot_id].ComputeUE5CameraTransform();
+        }
         std::string save_intermediate_path = "";
         
-        RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "EnvironmentInfo::BuildPointClouds: %f %f", ue5_robot_base[0]/100.0, ue5_robot_base[1]/100.0);
+        RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "EnvironmentInfo::BuildPointClouds: %f %f", 
+            robot_info_[robot_id].base_transforms[0]/100.0, robot_info_[robot_id].base_transforms[1]/100.0);
         for(auto& plant : plant_info_){
             if (save_intermediate) {
                 save_intermediate_path = "output/pcd/plant_" + std::to_string(creation_time_.seconds()) + "/" +
@@ -191,15 +223,15 @@ namespace tomato_xarm6 {
                 std::filesystem::create_directories(dir_path);
                 save_intermediate_path = save_intermediate_path + "/" + std::to_string(pc_build_count_);
             }
-            robot_info_[0].image_subscriber->process_to_pc(
+            robot_info_[robot_id].image_subscriber->process_to_pc(
                 plant.unique_point_clouds, 
-                transformation_mat_,
                 plant.instance_segmentation_id_g, plant.instance_segmentation_id_b,
                 save_intermediate_path,
-                visualizer);
+                transformation_mat_
+                );
         }
         
-        robot_info_[0].image_subscriber->under_recon_ = false;
+        robot_info_[robot_id].image_subscriber->under_recon_ = false;
         RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "EnvironmentInfo::BuildPointClouds: Finished");
         
     }
@@ -217,7 +249,14 @@ namespace tomato_xarm6 {
         }
         RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "EnvironmentInfo::SavePointClouds: Finished");
     }
-
+    int EnvironmentInfo::GetRobotID(const std::string& robot_name){
+        for (size_t i = 0; i < robot_info_.size(); i++){
+            if (robot_info_[i].topic_name == robot_name){
+                return i;
+            }
+        }
+        return -1;
+    }
     void EnvironmentInfo::UpdateLog(){
         for(auto& robot : robot_info_){
             robot.UpdateLog();
@@ -249,11 +288,22 @@ namespace tomato_xarm6 {
             plant_log_file_ << plant.csv_data;
         }
         plant_log_file_.close();
+
+        std::ofstream semantic_log_file_("output/csv/semantics_" + file_name);
+        header_added_ = false;
+        for(auto& semantic : semantic_info_){
+            if (!header_added_){
+                header_added_ = true;
+                semantic_log_file_ << semantic.csv_header;
+            }
+            semantic_log_file_ << semantic.csv_data;
+        }
+        semantic_log_file_.close();
     }
-    void EnvironmentInfo::StartRobotCamera(const std::string& robot_name, const std::string &node_name, bool capture_both, bool reduce_file_size) {
+    void EnvironmentInfo::StartRobotCamera(const std::string& robot_name, const std::string &rgbd_node_name, const std::string &stereo_node_name, bool capture_both, bool reduce_file_size) {
         for (size_t i = 0; i < robot_info_.size(); i++){
             if (robot_info_[i].topic_name == robot_name){
-                robot_info_[i].ConfigCamera(node_name, capture_both, reduce_file_size);
+                robot_info_[i].ConfigCamera(robot_name + rgbd_node_name, robot_name + stereo_node_name, capture_both, reduce_file_size);
                 robot_info_[i].image_subscriber->start();
             }
         }
@@ -281,6 +331,8 @@ namespace tomato_xarm6 {
                 if (wait_for_sync_) {
                     RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6_camera"), "Waiting images: %s", robot_info_[i].topic_name.c_str());
                     robot_info_[i].image_subscriber->waiting_for_sync();
+                    // robot_info_[i].image_subscriber->reset();
+                    // robot_info_[i].image_subscriber->waiting_for_sync();
                 }
             }
         }
@@ -314,7 +366,11 @@ namespace tomato_xarm6 {
         transforms = tokens[0];
         seedP = std::stoi(tokens[1]);
         seedL = std::stoi(tokens[2]);
-        plant_variant = tokens[3];
+        std::vector<std::string> parts;
+        boost::split(parts, tokens[3], boost::is_any_of("/"), boost::token_compress_off);
+        if (!parts.empty()) {
+            plant_variant = parts.back();
+        }
         plant_name = tokens[4];
         
         instance_segmentation_id_g = static_cast<uint8_t>(std::stof(tokens[5])+0.1);//static_cast<uint8_t>( 255.0 * std::stof(tokens[3])+0.5);
@@ -331,6 +387,11 @@ namespace tomato_xarm6 {
             plant_variant == rhs.plant_variant && 
             instance_segmentation_id_g == rhs.instance_segmentation_id_g &&
             instance_segmentation_id_b == rhs.instance_segmentation_id_b;
+    }
+
+    bool PlantInfo::isInstance(uint8_t id_g, uint8_t id_b) {
+        return instance_segmentation_id_g == id_g &&
+            instance_segmentation_id_b == id_b;
     }
 
     void PlantInfo::UpdateLog() {
@@ -350,6 +411,14 @@ namespace tomato_xarm6 {
         csv_data += std::to_string(instance_segmentation_id_b)+ ",";
         csv_data += leaves;
         csv_data += "\n";
+    }
+    int PlantInfo::GetPointCloudOfSemantic(int semantic_label) {
+        for (size_t i = 0; i < unique_point_clouds.size(); ++i) {
+            if(std::get<0>(unique_point_clouds[i].segment_color) == semantic_label) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     //MARK: RobotInfo
@@ -371,21 +440,40 @@ namespace tomato_xarm6 {
 
         name = tokens[0]+tokens[1];
         topic_name = tokens[0];
-        base_transforms = tokens[3];
+        ParseUE5TransformString(tokens[3],base_transforms);
         camera_FOV = std::stod(tokens[4]);
         camera_height = std::stoi(tokens[5]);
         camera_width = std::stoi(tokens[6]);
-        camera_transforms = tokens[7];
-        camera_quaternion = tokens[8];
+        ParseUE5TransformString(tokens[7],camera_transforms);
+        // camera_quaternion = tokens[8];
     }
 
-    void RobotInfo::ConfigCamera(const std::string &node_name, bool capture_both, bool reduce_file_size) {
-        image_subscriber = std::make_shared<ImageSubscriber>(node_name, camera_FOV, camera_width, camera_height, capture_both, topic_name, reduce_file_size);
+    void RobotInfo::ConfigCamera(const std::string &rgbd_node_name, const std::string &stereo_node_name, bool capture_both, bool reduce_file_size) {
+        image_subscriber = std::make_shared<ImageSubscriber>(rgbd_node_name, stereo_node_name, camera_FOV, camera_width, camera_height, capture_both, topic_name, reduce_file_size);
         RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6_camera"), "FOV: %f, width: %d, height: %d", camera_FOV, camera_width, camera_height);
 
         //image_subscriber->update_intrinsics(camera_FOV, camera_width, camera_height);
     }
+    void RobotInfo::ConfigTFSubscriber(rclcpp::Node::SharedPtr node) {
+        robot_transforms_subscriber_ = node->create_subscription<tf2_msgs::msg::TFMessage>(
+            "ue5/"+topic_name+"/robot_state",10,std::bind(&RobotInfo::TFCallback,this,std::placeholders::_1));
 
+    }
+    void RobotInfo::TFCallback(const tf2_msgs::msg::TFMessage::ConstSharedPtr& msg) {
+        for (const auto &tf_ : msg->transforms){
+            if (tf_.header.frame_id.find("base")){
+                base_transforms[0] = -tf_.transform.translation.x;
+                base_transforms[1] = tf_.transform.translation.z;
+                base_transforms[2] = tf_.transform.translation.y;
+            }
+            if (tf_.header.frame_id.find("camera")){
+                camera_transforms[0] = -tf_.transform.translation.x;
+                camera_transforms[1] = tf_.transform.translation.z;
+                camera_transforms[2] = tf_.transform.translation.y;
+            }
+        }
+        
+    }
     bool RobotInfo::operator==(const RobotInfo &rhs) const {
         
         return name == rhs.name;
@@ -397,30 +485,53 @@ namespace tomato_xarm6 {
     }
 
     void RobotInfo::UpdateLog(){
-        csv_data += name + ",";
-        csv_data += std::to_string(camera_FOV);
+        csv_data += name + ","; // robot name
+        csv_data += std::to_string(camera_FOV); // camera params
         csv_data += ",";
         if (image_subscriber != nullptr){
-            csv_data += std::to_string(image_subscriber->capture_count_);
+            csv_data += std::to_string(image_subscriber->capture_count_); // current number of captured image
         } else {
-            csv_data += "no camera";
+            csv_data += "no camera";    // or no camera enabled
         }
         csv_data += ",";
-        double base_transform_arr[9] = {0,0,0,0,0,0,0,0,0};
-        RCLCPP_DEBUG(rclcpp::get_logger("tomato_xarm6"), "%s", base_transforms.c_str());
-        ParseUE5TransformString(base_transforms, base_transform_arr);
-        for (auto element : base_transform_arr){
-            csv_data += std::to_string(element);
+        for (auto element : base_transforms){
+            csv_data += std::to_string(element); // robot base in world transform (XYZ,RPY,Scale)
             csv_data += ",";
         }
-        double cam_transform_arr[9] = {0,0,0,0,0,0,0,0,0};
-        RCLCPP_DEBUG(rclcpp::get_logger("tomato_xarm6"), "%s", camera_transforms.c_str());
-        ParseUE5TransformString(camera_transforms, cam_transform_arr);
-        for (auto element : cam_transform_arr){
-            csv_data += std::to_string(element);
+        for (auto element : camera_transforms){
+            csv_data += std::to_string(element); // camera in the world transform
             csv_data += ",";
         }
         csv_data += "\n";
+    }
+
+    std::vector<std::shared_ptr<open3d::geometry::PointCloud>> RobotInfo::GetCurrentPointCloud() {
+        std::vector<std::shared_ptr<open3d::geometry::PointCloud>> clouds;
+        auto current_transform = ComputeUE5CameraTransform();
+        RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "Constructing PCD of Semantic 121");
+        clouds.push_back(image_subscriber->CurrentFrameSemanticPCD(121, current_transform));
+        RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "Constructing PCD of Semantic 123");
+        clouds.push_back(image_subscriber->CurrentFrameSemanticPCD(123, current_transform));
+        RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "Constructing PCD of Semantic 126");
+        clouds.push_back(image_subscriber->CurrentFrameSemanticPCD(126, current_transform));
+        return clouds;
+    }
+    Eigen::Matrix4d RobotInfo::ComputeUE5CameraTransform(){
+        RCLCPP_INFO(rclcpp::get_logger("tomato_xarm6"), "computing transforms");
+        Eigen::AngleAxisd rollAngle(-camera_transforms[5] * M_PI / 180.0,   Eigen::Vector3d::UnitX());
+        Eigen::AngleAxisd pitchAngle(-camera_transforms[3] * M_PI / 180.0, Eigen::Vector3d::UnitY());
+        Eigen::AngleAxisd yawAngle(camera_transforms[4] * M_PI / 180.0,     Eigen::Vector3d::UnitZ());
+        Eigen::Matrix3d R = (yawAngle * pitchAngle * rollAngle).toRotationMatrix();
+        Eigen::Matrix4d T = Eigen::Matrix4d::Identity();  // some transform
+        T.block<3,3>(0,0) = R;
+        Eigen::Matrix4d transformation_mat_ = T * UnrealToBlender.inverse();
+        // scale to cm
+        transformation_mat_.block<3,3>(0,0) *= 100;
+        // apply translation
+        transformation_mat_(0, 3) += camera_transforms[0];
+        transformation_mat_(1, 3) += camera_transforms[1];
+        transformation_mat_(2, 3) += camera_transforms[2];
+        return transformation_mat_;
     }
 
     void RobotInfo::WriteVideo()
@@ -437,8 +548,28 @@ namespace tomato_xarm6 {
                     image_subscriber->image_queue_.pop();
                 }
             }
-            image_subscriber->video_writer_.write(frame);
+            //image_subscriber->video_writer_.write(frame);
         }
         
+    }
+
+    SemanticInfo::SemanticInfo() {
+        csv_header = "R,G,B,Name\n";
+    }
+    void SemanticInfo::ParseData(const std::string &data)
+    {
+        semantic_id = static_cast<uint32_t>(std::stoul(id_str));
+        semantic_name = data;
+        b = semantic_id & 0xff;
+        g = (semantic_id >> 8) & 0xff;
+        r = (semantic_id >> 16) & 0xff;
+    }
+    void SemanticInfo::UpdateLog(){
+        csv_data += std::to_string(r) + "," + std::to_string(g) + "," + std::to_string(b) + "," + semantic_name; // robot name
+        csv_data += "\n";
+    }
+    bool SemanticInfo::operator==(const SemanticInfo &rhs) const {
+        
+        return semantic_id == rhs.semantic_id;
     }
 }

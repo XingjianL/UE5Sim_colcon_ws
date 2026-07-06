@@ -80,15 +80,6 @@ namespace benchbot_xarm6 {
         try 
         {
             cv_img_depth_ = cv_bridge::toCvShare(msg, "32FC1")->image.clone();
-
-            //cv::Mat normalized_image;
-            //cv::threshold(cv_img_depth_, cv_img_depth_, 300.0, 0, cv::THRESH_TOZERO_INV);
-            // cv_img_depth_.convertTo(depth_cmeters_, CV_32FC1);
-            // cv::normalize(cv_img_depth_, normalized_image, 0, 255, cv::NORM_MINMAX, CV_8UC1);
-            // //cv::flip(normalized_image, normalized_image, -1);
-            // cv::imshow("depth_view", normalized_image);
-            // cv::waitKey(1);
-            //process_to_rgbd();
         }
         catch (cv_bridge::Exception& e) 
         {
